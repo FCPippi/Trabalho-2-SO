@@ -1,0 +1,27 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#define VIRTUAL_BITS 14
+#define PHYSICAL_BITS 12
+#define PAGE_BITS 8
+
+#define PAGE_SIZE (1 << PAGE_BITS)
+#define VIRTUAL_MEM_SIZE (1 << VIRTUAL_BITS)
+#define PHYSICAL_MEM_SIZE (1 << PHYSICAL_BITS)
+#define NUM_FRAMES (PHYSICAL_MEM_SIZE / PAGE_SIZE)
+#define NUM_PAGES (VIRTUAL_MEM_SIZE / PAGE_SIZE)
+
+#define TEXT_SIZE (1 << (VIRTUAL_BITS - 2))
+#define DATA_SIZE (1 << (VIRTUAL_BITS - 3))
+#define STACK_SIZE (1 << (VIRTUAL_BITS - 3))
+#define BSS_SIZE (VIRTUAL_MEM_SIZE - (TEXT_SIZE + DATA_SIZE + STACK_SIZE))
+
+typedef enum { 
+    PAGETABLE_1LVL, 
+    PAGETABLE_2LVL, 
+    PAGETABLE_INVERTED 
+} PagingType;
+
+extern PagingType paging_type;
+
+#endif
