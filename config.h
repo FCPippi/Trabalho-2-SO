@@ -1,8 +1,8 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#define VIRTUAL_BITS 14
-#define PHYSICAL_BITS 12
+#define VIRTUAL_BITS 12
+#define PHYSICAL_BITS 10
 #define PAGE_BITS 8
 
 #define PAGE_SIZE (1 << PAGE_BITS)

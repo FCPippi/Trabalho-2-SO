@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
+#include <ctype.h>
 #include "config.h"
 #include "memory.h"
 #include "utils.h"
@@ -12,177 +14,209 @@
 PagingType paging_type = PAGETABLE_1LVL;
 
 /**
- * @brief Função principal do simulador de memória paginada
- * @param argc Número de argumentos da linha de comando
- * @param argv Array de argumentos da linha de comando
- * @return 0 se execução bem-sucedida, 1 em caso de erro
- * @details Controla todo o fluxo do simulador:
- *          1. Valida argumentos e define tipo de paginação
- *          2. Inicializa estruturas de dados
- *          3. Gera ou lê endereços de entrada
- *          4. Processa cada endereço virtual
- *          5. Gera arquivo de saída com resultados
- * @note Uso: programa [1|2|inv] onde:
- *       - 1: tabela de 1 nível
- *       - 2: tabela de 2 níveis
- *       - inv: tabela invertida
+ * @brief Gera um relatorio completo no arquivo de saida
+ * @param out Arquivo de saida
+ * @param vaddr Endereco virtual processado
+ * @param paddr Endereco fisico resultante
+ * @param processed_addresses Contador de enderecos processados
  */
-int main(int argc, char *argv[]) {
-    printf("=== Simulador de Memória Paginada ===\n");
-    printf("Diretório atual: %s\n", getcwd(NULL, 0) ? getcwd(NULL, 0) : "desconhecido");
+void generate_full_report(FILE *out, int vaddr, int paddr, int processed_addresses) {
+    const char *segment = get_segment_name(vaddr);
     
-    // Validação de argumentos
-    if (argc < 2) {
-        printf("Uso: %s [1|2|inv]\n", argv[0]);
-        printf("  1   - Tabela de páginas de 1 nível\n");
-        printf("  2   - Tabela de páginas de 2 níveis\n");
-        printf("  inv - Tabela de páginas invertida\n");
-        return 1;
-    }
-
-    // Configuração do tipo de paginação
-    if (strcmp(argv[1], "1") == 0) {
-        paging_type = PAGETABLE_1LVL;
-        printf("Usando tabela de páginas de 1 nível\n");
-    } else if (strcmp(argv[1], "2") == 0) {
-        paging_type = PAGETABLE_2LVL;
-        printf("Usando tabela de páginas de 2 níveis\n");
-    } else if (strcmp(argv[1], "inv") == 0) {
-        paging_type = PAGETABLE_INVERTED;
-        printf("Usando tabela de páginas invertida\n");
-    } else {
-        printf("Tipo de tabela inválido. Use 1, 2 ou inv.\n");
-        return 1;
-    }
-
-    // Validação da configuração
-    if (VIRTUAL_MEM_SIZE < PHYSICAL_MEM_SIZE) {
-        printf("Erro: Espaço virtual deve ser >= memória física\n");
-        return 1;
-    }
-
-    print_configuration();
-
-    // Inicialização das estruturas
-    init_memory();
-    switch (paging_type) {
-        case PAGETABLE_1LVL:
-            init_pagetable_1lvl();
-            break;
-        case PAGETABLE_2LVL:
-            init_pagetable_2lvl();
-            break;
-        case PAGETABLE_INVERTED:
-            init_pagetable_inv();
-            break;
-    }
-
-    // Geração ou leitura de endereços
-    int *virtual_addresses = NULL;
-    int count = generate_or_read_input(&virtual_addresses);
-
-    printf("Processando %d endereços virtuais...\n", count);
-
-    // Abertura do arquivo de saída
-    FILE *out = fopen("saida.txt", "w");
-    if (!out) {
-        printf("Erro ao criar arquivo de saída saida.txt\n");
-        printf("Verifique as permissões do diretório atual\n");
-        free(virtual_addresses);
-        return 1;
-    }
-
-    printf("Arquivo de saída saida.txt criado com sucesso\n");
-
-    // Cabeçalho do arquivo de saída
-    fprintf(out, "=== Simulador de Memória Paginada ===\n");
-    fprintf(out, "Tipo de paginação: ");
-    switch (paging_type) {
-        case PAGETABLE_1LVL:
-            fprintf(out, "1 nível\n");
-            break;
-        case PAGETABLE_2LVL:
-            fprintf(out, "2 níveis\n");
-            break;
-        case PAGETABLE_INVERTED:
-            fprintf(out, "Invertida\n");
-            break;
-    }
-    fprintf(out, "=====================================\n\n");
-
-    // Processamento dos endereços virtuais
-    int memory_full = 0;
-    int processed_addresses = 0;
-    for (int i = 0; i < count && !memory_full; i++) {
-        processed_addresses = i + 1;
-        int vaddr = virtual_addresses[i];
-        int paddr = -1;
-        const char *segment = get_segment_name(vaddr);
-
-        printf("Processando endereço %d: %d (página %d)\n", i+1, vaddr, vaddr/PAGE_SIZE);
-        
-        // Tradução baseada no tipo de paginação
-        switch (paging_type) {
-            case PAGETABLE_1LVL:
-                paddr = translate_1lvl(vaddr);
-                break;
-            case PAGETABLE_2LVL:
-                paddr = translate_2lvl(vaddr);
-                break;
-            case PAGETABLE_INVERTED:
-                paddr = translate_inverted(vaddr);
-                break;
-        }
-
-        // Tratamento de memória cheia
-        if (paddr == -1) {
-            fprintf(out, "ERRO: Memória física cheia. Encerrando simulação.\n");
-            printf("Memória física cheia no endereço %d (página %d). Simulação encerrada.\n", vaddr, vaddr/PAGE_SIZE);
-            memory_full = 1;
-            processed_addresses--;
-            break;
-        }
-
-        printf("  -> Endereço físico: %d\n", paddr);
-        fprintf(out, "Endereço Virtual: %d (segmento %s) -> Endereço Físico: %d\n", 
-                vaddr, segment, paddr);
-    }
-
-    // Estado final das estruturas
-    fprintf(out, "\n=== Estado Final das Estruturas ===\n");
+    // Endereco traduzido
+    fprintf(out, "Endereco Virtual: %d (segmento %s) -> Endereco Fisico: %d\n", 
+            vaddr, segment, paddr);
     
+    // Estado atual
+    fprintf(out, "\n=== Estado Atual ===\n");
+    
+    // Tabela de paginas
     switch (paging_type) {
-        case PAGETABLE_1LVL:
-            dump_pagetable_1lvl(out);
-            break;
-        case PAGETABLE_2LVL:
-            dump_pagetable_2lvl(out);
-            break;
-        case PAGETABLE_INVERTED:
-            dump_pagetable_inv(out);
-            break;
+        case PAGETABLE_1LVL: dump_pagetable_1lvl(out); break;
+        case PAGETABLE_2LVL: dump_pagetable_2lvl(out); break;
+        case PAGETABLE_INVERTED: dump_pagetable_inv(out); break;
     }
-
+    
+    // Memoria fisica
     dump_memory(out);
-
-    // Cálculo de estatísticas
+    
+    // Estatisticas
     int used_frames = 0;
     for (int i = 0; i < NUM_FRAMES; i++) {
         if (frames[i] != -1) used_frames++;
     }
     
-    fprintf(out, "\n=== Estatísticas ===\n");
-    fprintf(out, "Endereços processados: %d\n", processed_addresses);
+    fprintf(out, "\n=== Estatisticas ===\n");
+    fprintf(out, "Enderecos processados: %d\n", processed_addresses);
     fprintf(out, "Molduras utilizadas: %d/%d\n", used_frames, NUM_FRAMES);
-    fprintf(out, "Taxa de ocupação: %.2f%%\n", (float)used_frames / NUM_FRAMES * 100);
+    fprintf(out, "Taxa de ocupacao: %.2f%%\n", (float)used_frames/NUM_FRAMES*100);
+    
+    // Separador para o proximo relatorio
+    fprintf(out, "\n====-----------------NOVO-CONTEUDO---------------------------===\n");
+    fflush(out);
+}
 
-    // Limpeza de recursos
-    free(virtual_addresses);
+int main(int argc, char *argv[]) {
+    printf("=== Simulador de Memoria Paginada ===\n");
+
+    if (argc < 2) {
+        printf("Uso: %s [1|2|inv] [r|i]\n", argv[0]);
+        printf("  1: tabela de paginas de 1 nivel\n");
+        printf("  2: tabela de paginas de 2 niveis\n");
+        printf("  inv: tabela de paginas invertida\n");
+        printf("  r: gerar 10 enderecos aleatorios\n");
+        printf("  i: modo interativo (padrao)\n");
+        return 1;
+    }
+
+    // Configura tipo de paginacao
+    if (strcmp(argv[1], "1") == 0) {
+        paging_type = PAGETABLE_1LVL;
+        printf("Usando tabela de paginas de 1 nivel\n");
+    } else if (strcmp(argv[1], "2") == 0) {
+        paging_type = PAGETABLE_2LVL;
+        printf("Usando tabela de paginas de 2 niveis\n");
+    } else if (strcmp(argv[1], "inv") == 0) {
+        paging_type = PAGETABLE_INVERTED;
+        printf("Usando tabela de paginas invertida\n");
+    } else {
+        printf("Tipo de tabela invalido. Use 1, 2 ou inv.\n");
+        return 1;
+    }
+
+    // Verifica se deve usar modo aleatorio ou interativo
+    int random_mode = 0;
+    if (argc > 2 && strcmp(argv[2], "r") == 0) {
+        random_mode = 1;
+        printf("Modo aleatorio ativado. Gerando 10 enderecos.\n");
+    } else {
+        printf("Modo interativo ativado. Digite enderecos virtuais.\n");
+    }
+
+    if (VIRTUAL_MEM_SIZE < PHYSICAL_MEM_SIZE) {
+        printf("Erro: Espaco virtual deve ser >= memoria fisica\n");
+        return 1;
+    }
+
+    print_configuration();
+
+    init_memory();
+    switch (paging_type) {
+        case PAGETABLE_1LVL: init_pagetable_1lvl(); break;
+        case PAGETABLE_2LVL: init_pagetable_2lvl(); break;
+        case PAGETABLE_INVERTED: init_pagetable_inv(); break;
+    }
+
+    FILE *out = fopen("saida.txt", "w");
+    fprintf(out, "=== Simulador de Memoria Paginada ===\n");
+    fprintf(out, "Tipo de paginacao: %s\n", 
+           paging_type == PAGETABLE_1LVL ? "1 nivel" : 
+           paging_type == PAGETABLE_2LVL ? "2 niveis" : "Invertida");
+    fprintf(out, "=====================================\n\n");
+
+    int processed_addresses = 0;
+    int memory_full = 0; // Flag para controle de memoria cheia
+    
+    if (random_mode) {
+        // Modo aleatorio - gera 100 enderecos
+        srand(time(NULL));
+        for (int i = 0; i < 100; i++) {
+            // Verifica se a memoria esta cheia antes de processar
+            if (is_memory_full()) {
+                printf("Memoria fisica cheia! Processamento interrompido.\n");
+                fprintf(out, "\n=== ATENCAO: Memoria fisica cheia! Processamento interrompido. ===\n");
+                memory_full = 1;
+                break;
+            }
+            
+            int vaddr = rand() % VIRTUAL_MEM_SIZE;
+            printf("\nProcessando endereco aleatorio %d: %d\n", i+1, vaddr);
+            
+            int paddr = -1;
+            
+            switch (paging_type) {
+                case PAGETABLE_1LVL: paddr = translate_1lvl(vaddr); break;
+                case PAGETABLE_2LVL: paddr = translate_2lvl(vaddr); break;
+                case PAGETABLE_INVERTED: paddr = translate_inverted(vaddr); break;
+            }
+
+            if (paddr == -1) {
+                printf("Memoria fisica cheia! Nao foi possivel mapear o endereco %d\n", vaddr);
+                fprintf(out, "\n=== ATENCAO: Memoria fisica cheia! ===\n");
+                memory_full = 1;
+                break;
+            }
+
+            printf("  -> Endereco fisico: %d\n", paddr);
+            processed_addresses++;
+
+            // Gera relatorio completo para este endereco
+            generate_full_report(out, vaddr, paddr, processed_addresses);
+        }
+    } else {
+        // Modo interativo
+        printf("\nDigite enderecos virtuais para traduzir (ou 'q' para sair):\n");
+        char input[20];
+        
+        while (1) {
+            // Verifica se a memoria esta cheia antes de processar
+            if (is_memory_full()) {
+                printf("Memoria fisica cheia! Nao e possivel processar mais enderecos.\n");
+                fprintf(out, "\n=== ATENCAO: Memoria fisica cheia! Processamento interrompido. ===\n");
+                memory_full = 1;
+                break;
+            }
+            
+            printf("\nEndereco virtual (0-%d): ", VIRTUAL_MEM_SIZE-1);
+            fgets(input, sizeof(input), stdin);
+            
+            input[strcspn(input, "\n")] = 0;
+            if (tolower(input[0]) == 'q') break;
+            
+            int vaddr = atoi(input);
+            if (vaddr < 0 || vaddr >= VIRTUAL_MEM_SIZE) {
+                printf("Endereco invalido! Deve estar entre 0 e %d\n", VIRTUAL_MEM_SIZE-1);
+                continue;
+            }
+
+            int paddr = -1;
+            
+            switch (paging_type) {
+                case PAGETABLE_1LVL: paddr = translate_1lvl(vaddr); break;
+                case PAGETABLE_2LVL: paddr = translate_2lvl(vaddr); break;
+                case PAGETABLE_INVERTED: paddr = translate_inverted(vaddr); break;
+            }
+
+            if (paddr == -1) {
+                printf("Memoria fisica cheia! Nao foi possivel mapear o endereco %d\n", vaddr);
+                fprintf(out, "\n=== ATENCAO: Memoria fisica cheia! ===\n");
+                memory_full = 1;
+                break;
+            }
+
+            printf("  -> Endereco fisico: %d\n", paddr);
+            processed_addresses++;
+
+            // Gera relatorio completo para este endereco
+            generate_full_report(out, vaddr, paddr, processed_addresses);
+        }
+    }
+
+    // Adicione um relatorio final quando a memoria encher
+    if (memory_full) {
+        fprintf(out, "\n=== RELATORIO FINAL (MEMORIA CHEIA) ===\n");
+        fprintf(out, "Total de enderecos processados: %d\n", processed_addresses);
+        
+        int used_frames = 0;
+        for (int i = 0; i < NUM_FRAMES; i++) {
+            if (frames[i] != -1) used_frames++;
+        }
+        
+        fprintf(out, "Molduras utilizadas: %d/%d\n", used_frames, NUM_FRAMES);
+        fprintf(out, "Taxa de ocupacao: %.2f%%\n", (float)used_frames/NUM_FRAMES*100);
+    }
+
     fclose(out);
-
-    printf("Simulação concluída com sucesso!\n");
-    printf("Arquivos criados:\n");
-    printf("  - entrada.txt (endereços de entrada)\n");
-    printf("  - saida.txt (resultados da simulação)\n");
+    printf("\nResultados salvos em saida.txt\n");
     return 0;
 }
